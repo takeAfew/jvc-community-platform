@@ -1,0 +1,44 @@
+name: Monthly JVC Ecosystem Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry Run (simulate checks without modifying WhatsApp groups)'
+        required: true
+        default: 'false'
+        type: boolean
+  # Uncomment the schedule below to enable automated monthly execution on the 1st of every month at 08:00 UTC
+  # schedule:
+  #   - cron: '0 8 1 * *'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Monthly Ecosystem Verification
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          LOBSTR_API_KEY: ${{ secrets.LOBSTR_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          WHATSAPP_GROUP_JID: ${{ secrets.WHATSAPP_GROUP_JID }}
+          WHATSAPP_GROUP_INVITE_LINK: ${{ secrets.WHATSAPP_GROUP_INVITE_LINK }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            npm run verify:monthly -- --dry-run
+          else
+            npm run verify:monthly
+          fi
