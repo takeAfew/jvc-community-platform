@@ -4,89 +4,132 @@ import { supabase } from "@/lib/supabase";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-secret-token",
 };
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders });
 }
 
+interface CandidatePayload {
+  fullName: string;
+  phoneNumber: string;
+  linkedinUrl: string;
+  currentFirm?: string;
+  roleTitle?: string;
+  hubCity?: string;
+}
+
+function normalizePhone(raw: string): string {
+  let clean = (raw || "").trim().replace(/[\s\-\(\)]/g, "");
+  if (!clean.startsWith("+")) {
+    clean = `+${clean}`;
+  }
+  return clean;
+}
+
+function cleanLinkedinUrl(url: string): string {
+  return (url || "").trim().split("?")[0].replace(/\/$/, "");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { fullName, phoneNumber, linkedinUrl, currentFirm, roleTitle, hubCity } = body;
 
-    if (!fullName || !phoneNumber || !linkedinUrl) {
+    // Check if body is a batch array or single object
+    const candidates: CandidatePayload[] = Array.isArray(body)
+      ? body
+      : Array.isArray(body.candidates)
+      ? body.candidates
+      : [body];
+
+    if (candidates.length === 0) {
       return NextResponse.json(
-        { error: "Full name, WhatsApp phone number, and LinkedIn URL are required." },
+        { error: "No candidates provided." },
         { status: 400, headers: corsHeaders }
       );
     }
 
-    // Format phone: ensure international prefix
-    let cleanPhone = phoneNumber.trim().replace(/[\s\-\(\)]/g, "");
-    if (!cleanPhone.startsWith("+")) {
-      cleanPhone = `+${cleanPhone}`;
-    }
+    const insertedOrUpdated: any[] = [];
+    const errors: any[] = [];
 
-    // Clean LinkedIn URL
-    const cleanLinkedin = linkedinUrl.trim().split("?")[0].replace(/\/$/, "");
+    for (const item of candidates) {
+      const { fullName, phoneNumber, linkedinUrl, currentFirm, roleTitle, hubCity } = item;
 
-    // Check if member already exists
-    const { data: existing } = await supabase
-      .from("jvc_members")
-      .select("id, status, full_name")
-      .or(`phone_number.eq.${cleanPhone},linkedin_url.eq.${cleanLinkedin}`)
-      .maybeSingle();
-
-    if (existing) {
-      if (existing.status === "active_member") {
-        return NextResponse.json(
-          { message: "You are already an active member of JVC! Welcome back." },
-          { status: 200, headers: corsHeaders }
-        );
-      } else if (existing.status === "pending_review") {
-        return NextResponse.json(
-          { message: "Your application is already received and queued for the monthly review." },
-          { status: 200, headers: corsHeaders }
-        );
+      if (!fullName || !phoneNumber || !linkedinUrl) {
+        errors.push({
+          item,
+          error: "Full name, phone number, and LinkedIn URL are mandatory.",
+        });
+        continue;
       }
-    }
 
-    // Insert new application
-    const { data, error } = await supabase
-      .from("jvc_members")
-      .upsert(
-        {
-          full_name: fullName.trim(),
-          phone_number: cleanPhone,
-          linkedin_url: cleanLinkedin,
-          current_firm: (currentFirm || "").trim(),
-          role_title: (roleTitle || "").trim(),
-          hub_city: (hubCity || "Europe").trim(),
-          status: "pending_review",
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "phone_number" }
-      )
-      .select()
-      .single();
+      const cleanPhone = normalizePhone(phoneNumber);
+      const cleanLinkedin = cleanLinkedinUrl(linkedinUrl);
 
-    if (error) {
-      console.error("Database insert error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500, headers: corsHeaders });
+      const { data, error } = await supabase
+        .from("jvc_members")
+        .upsert(
+          {
+            full_name: fullName.trim(),
+            phone_number: cleanPhone,
+            linkedin_url: cleanLinkedin,
+            current_firm: (currentFirm || "").trim(),
+            role_title: (roleTitle || "").trim(),
+            hub_city: (hubCity || "Paris").trim(),
+            status: "pending_review",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "phone_number" }
+        )
+        .select()
+        .single();
+
+      if (error) {
+        // If conflict on linkedin_url, update by linkedin_url
+        if (error.message.includes("idx_jvc_members_linkedin") || error.code === "23505") {
+          const { data: updateData, error: updateError } = await supabase
+            .from("jvc_members")
+            .update({
+              full_name: fullName.trim(),
+              phone_number: cleanPhone,
+              current_firm: (currentFirm || "").trim(),
+              role_title: (roleTitle || "").trim(),
+              hub_city: (hubCity || "Paris").trim(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("linkedin_url", cleanLinkedin)
+            .select()
+            .single();
+
+          if (updateError) {
+            errors.push({ item, error: updateError.message });
+          } else {
+            insertedOrUpdated.push(updateData);
+          }
+        } else {
+          errors.push({ item, error: error.message });
+        }
+      } else {
+        insertedOrUpdated.push(data);
+      }
     }
 
     return NextResponse.json(
       {
         success: true,
-        message: "Application submitted successfully! Your profile will be verified during the monthly review cycle.",
-        member: data,
+        message: `Synced ${insertedOrUpdated.length} candidate(s) successfully!`,
+        syncedCount: insertedOrUpdated.length,
+        errorsCount: errors.length,
+        errors: errors.length > 0 ? errors : undefined,
       },
-      { status: 201, headers: corsHeaders }
+      { status: 200, headers: corsHeaders }
     );
   } catch (error: any) {
-    console.error("Application error:", error);
-    return NextResponse.json({ error: error.message || "Internal server error" }, { status: 500, headers: corsHeaders });
+    console.error("Application/Webhook error:", error);
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500, headers: corsHeaders }
+    );
   }
 }
