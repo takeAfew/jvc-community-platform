@@ -35,3 +35,4 @@ next-env.d.ts
 
 # whatsapp session
 /wa_auth_info
+.env*
