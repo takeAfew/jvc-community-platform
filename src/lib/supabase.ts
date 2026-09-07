@@ -8,6 +8,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export interface JVCMember {
   id: string;
   full_name: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  applied_at?: string | null;
   phone_number: string;
   linkedin_url: string;
   current_firm: string | null;

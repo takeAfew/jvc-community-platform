@@ -25,6 +25,8 @@ import {
   Settings2,
   Sliders,
   Send,
+  LogOut,
+  Calendar,
 } from "lucide-react";
 import { JVCMember } from "@/lib/supabase";
 
@@ -40,6 +42,21 @@ export const JVC_HUBS = [
   { id: "stockholm", name: "Stockholm", flag: "🇸🇪", city: "Stockholm" },
   { id: "amsterdam", name: "Amsterdam", flag: "🇳🇱", city: "Amsterdam" },
 ];
+
+function formatAppliedDate(dateStr?: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return dateStr || "—";
+  }
+}
 
 export default function AdminControlRoom() {
   const [members, setMembers] = useState<JVCMember[]>([]);
@@ -59,14 +76,6 @@ export default function AdminControlRoom() {
     phoneNumber: string | null;
     qrCodeDataUrl: string | null;
   }>({ status: "disconnected", phoneNumber: null, qrCodeDataUrl: null });
-
-  // Hub WhatsApp settings modal
-  const [showHubSettings, setShowHubSettings] = useState(false);
-  const [hubWaSettings, setHubWaSettings] = useState<{ groupName: string; groupJid: string; inviteLink: string }>({
-    groupName: "",
-    groupJid: "",
-    inviteLink: "",
-  });
 
   const fetchMembers = async () => {
     try {
@@ -95,6 +104,16 @@ export default function AdminControlRoom() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (err) {
+      console.error("Failed to logout:", err);
+    } finally {
+      window.location.href = "/login";
+    }
+  };
+
   useEffect(() => {
     fetchMembers();
     fetchWaStatus();
@@ -103,11 +122,11 @@ export default function AdminControlRoom() {
   }, []);
 
   const triggerMonthlyVerification = async (dryRun: boolean) => {
-    const hubLabel = selectedHub === "all" ? "tutti gli Hub Europei" : `l'Hub di ${selectedHub.toUpperCase()}`;
+    const hubLabel = selectedHub === "all" ? "all European Hubs" : `the ${selectedHub.toUpperCase()} Hub`;
     const confirmed = confirm(
       dryRun
-        ? `Avviare la Verifica Mensile in Simulazione (Dry Run) per ${hubLabel}? Nessun messaggio o rimozione WhatsApp verrà effettuata.`
-        : `ATTENZIONE: Avviare la Verifica Mensile LIVE per ${hubLabel}? Chi non lavora più in VC verrà rimosso dal gruppo WhatsApp e i nuovi candidati idonei verranno aggiunti.`
+        ? `Run Monthly Verification in Simulation (Dry Run) for ${hubLabel}? No WhatsApp messages or removals will be performed.`
+        : `WARNING: Run LIVE Monthly Verification for ${hubLabel}? Members who left VC will be removed from WhatsApp groups, and eligible candidates will receive invites.`
     );
     if (!confirmed) return;
 
@@ -124,7 +143,7 @@ export default function AdminControlRoom() {
       setRunLog(data.summary || data);
       await fetchMembers();
     } catch (err: any) {
-      alert("Errore durante la verifica: " + err.message);
+      alert("Error during verification: " + err.message);
     } finally {
       setRunningCheck(false);
     }
@@ -180,6 +199,8 @@ export default function AdminControlRoom() {
       const q = searchQuery.toLowerCase();
       const matchesSearch =
         m.full_name.toLowerCase().includes(q) ||
+        (m.first_name || "").toLowerCase().includes(q) ||
+        (m.last_name || "").toLowerCase().includes(q) ||
         (m.current_firm || "").toLowerCase().includes(q) ||
         (m.role_title || "").toLowerCase().includes(q) ||
         m.phone_number.includes(q);
@@ -190,11 +211,11 @@ export default function AdminControlRoom() {
   const currentHubInfo = JVC_HUBS.find((h) => h.id === selectedHub) || JVC_HUBS[0];
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col p-4 md:p-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 font-sans">
       {/* Top Header */}
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-6 border-b border-foreground/10">
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-foreground/10">
         <div className="flex items-center gap-3">
-          <JVCLogo size={65} />
+          <JVCLogo size={110} />
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-medium tracking-tight">JVC Community Engine</h1>
@@ -208,12 +229,12 @@ export default function AdminControlRoom() {
               </a>
             </div>
             <p className="text-xs text-muted-foreground">
-              Junior VC Community Europe &bull; Control Room Hubs & Automazione
+              Junior VC Community Europe &bull; Regional Hubs Control Room & Verification Engine
             </p>
           </div>
         </div>
 
-        {/* WhatsApp Connection Widget */}
+        {/* WhatsApp Connection Widget + Sign Out */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-foreground/10 text-xs font-medium bg-white/60 shadow-xs">
             <span
@@ -237,9 +258,19 @@ export default function AdminControlRoom() {
               className="px-3.5 py-1.5 text-xs font-medium rounded-xl bg-foreground text-background hover:opacity-90 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
             >
               <Smartphone className="w-3.5 h-3.5" />
-              Collega WhatsApp
+              Connect WhatsApp
             </button>
           )}
+
+          {/* Sign Out Button */}
+          <button
+            onClick={handleLogout}
+            title="Sign out of Control Room"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200/80 bg-white/70 hover:bg-white text-neutral-600 hover:text-neutral-900 text-xs font-medium cursor-pointer shadow-xs transition-all"
+          >
+            <LogOut className="w-3.5 h-3.5 text-neutral-500" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </header>
 
@@ -254,27 +285,27 @@ export default function AdminControlRoom() {
           <div className="space-y-1 text-center sm:text-left">
             <div className="inline-flex items-center gap-2 text-amber-900 font-semibold text-sm">
               <QrCode className="w-4 h-4" />
-              Scansiona il QR Code con WhatsApp
+              Scan QR Code with WhatsApp
             </div>
             <p className="text-xs text-amber-800/80 max-w-lg leading-relaxed">
-              Apri WhatsApp sul telefono del bot &gt; Dispositivi Collegati &gt; Collega un dispositivo.
-              Una volta associato, il bot gestirà automaticamente l&apos;ingresso e l&apos;uscita nei gruppi dei rispettivi Hub.
+              Open WhatsApp on the bot device &gt; Linked Devices &gt; Link a device.
+              Once linked, the bot will automatically manage member admissions and offboarding for each regional Hub.
             </p>
           </div>
         </div>
       )}
 
-      {/* 📁 HUB DIRECTORY / SELEZIONE CARTELLE HUB */}
+      {/* 📁 REGIONAL HUB SELECTOR */}
       <section className="my-6">
         <div className="flex items-center justify-between mb-2.5">
           <div className="flex items-center gap-2">
             <FolderOpen className="w-4 h-4 text-muted-foreground" />
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Hub Europei JVC
+              JVC European Hubs
             </h2>
           </div>
           <span className="text-xs text-muted-foreground">
-            Seleziona un Hub per visualizzare e gestire i suoi membri
+            Select a Hub to view and manage its verified members
           </span>
         </div>
 
@@ -325,11 +356,11 @@ export default function AdminControlRoom() {
               {currentHubInfo.city} {selectedHub !== "all" && "Hub"}
             </h2>
             <span className="text-xs font-mono px-2 py-0.5 rounded-md bg-foreground/5 text-muted-foreground">
-              {hubStats.total} {hubStats.total === 1 ? "professionista" : "professionisti"}
+              {hubStats.total} {hubStats.total === 1 ? "member" : "members"}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Gestisci chi è dentro, la waiting list mensile, chi è uscito dal VC e chi non è stato ammesso.
+            Manage active members, monthly intake review, VC alumni, and rejected applicants.
           </p>
         </div>
 
@@ -339,27 +370,50 @@ export default function AdminControlRoom() {
             onClick={() => triggerMonthlyVerification(true)}
             disabled={runningCheck}
             className="px-3.5 py-2 rounded-xl border border-foreground/15 text-xs font-medium hover:bg-white hover:border-foreground/30 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="Esegue il controllo con Lobstr e Gemini senza modificare WhatsApp"
+            title="Runs verification with Lobstr and Gemini AI without modifying WhatsApp"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${runningCheck ? "animate-spin" : ""}`} />
-            Simulazione (Dry Run)
+            Simulation (Dry Run)
           </button>
 
           <button
             onClick={() => triggerMonthlyVerification(false)}
             disabled={runningCheck}
             className="px-4 py-2 rounded-xl bg-foreground text-background text-xs font-medium hover:opacity-90 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
-            title="Esegue il controllo e applica le modifiche ai gruppi WhatsApp inviando i messaggi"
+            title="Runs verification and applies live updates to WhatsApp groups"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            {runningCheck ? "Verifica in corso..." : "Esegui Verifica Mensile LIVE"}
+            {runningCheck ? "Verifying..." : "Run LIVE Monthly Check"}
           </button>
         </div>
       </div>
 
-      {/* 4 CARTELLA DI STATO (DENTRO / WAITING LIST / RIMOSSI / MAI ENTRATI) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-6">
-        {/* 1. CHI È DENTRO */}
+      {/* 📁 5 STATUS FOLDERS (ALL / ACTIVE / WAITING LIST / ALUMNI / REJECTED) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 mb-6">
+        {/* 0. ALL MEMBERS / STATUSES */}
+        <button
+          onClick={() => setActiveStatusTab("all")}
+          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+            activeStatusTab === "all"
+              ? "bg-neutral-900 text-white border-neutral-900 shadow-md ring-2 ring-neutral-900/20"
+              : "bg-white/60 border-foreground/10 hover:border-foreground/30 text-foreground"
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <span className={`text-xs font-semibold uppercase tracking-wider ${activeStatusTab === "all" ? "text-neutral-200" : "text-neutral-600"}`}>
+              All Members
+            </span>
+            <Users className={`w-4 h-4 ${activeStatusTab === "all" ? "text-white" : "text-neutral-500"}`} />
+          </div>
+          <div className={`text-2xl font-bold ${activeStatusTab === "all" ? "text-white" : "text-neutral-950"}`}>
+            {hubStats.total}
+          </div>
+          <p className={`text-[11px] mt-1 ${activeStatusTab === "all" ? "text-neutral-300" : "text-muted-foreground"}`}>
+            All statuses in this Hub
+          </p>
+        </button>
+
+        {/* 1. ACTIVE MEMBERS */}
         <button
           onClick={() => setActiveStatusTab(activeStatusTab === "active_member" ? "all" : "active_member")}
           className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -369,14 +423,14 @@ export default function AdminControlRoom() {
           }`}
         >
           <div className="flex items-center justify-between text-emerald-800 mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider">Dentro (Attivi)</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Active</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-bold text-emerald-950">{hubStats.inside}</div>
-          <p className="text-[11px] text-emerald-700/80 mt-1">Nel gruppo WhatsApp ufficiale</p>
+          <p className="text-[11px] text-emerald-700/80 mt-1">In official WhatsApp group</p>
         </button>
 
-        {/* 2. IN WAITING LIST */}
+        {/* 2. WAITING LIST */}
         <button
           onClick={() => setActiveStatusTab(activeStatusTab === "pending_review" ? "all" : "pending_review")}
           className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -386,14 +440,14 @@ export default function AdminControlRoom() {
           }`}
         >
           <div className="flex items-center justify-between text-amber-800 mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider">In Waiting List</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Waiting List</span>
             <Clock className="w-4 h-4 text-amber-600" />
           </div>
           <div className="text-2xl font-bold text-amber-950">{hubStats.waiting}</div>
-          <p className="text-[11px] text-amber-700/80 mt-1">In attesa del controllo mensile</p>
+          <p className="text-[11px] text-amber-700/80 mt-1">Pending monthly verification</p>
         </button>
 
-        {/* 3. RIMOSSI (HANNO LASCIATO IL VC) */}
+        {/* 3. ALUMNI (LEFT VC) */}
         <button
           onClick={() => setActiveStatusTab(activeStatusTab === "removed_churned" ? "all" : "removed_churned")}
           className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -403,14 +457,14 @@ export default function AdminControlRoom() {
           }`}
         >
           <div className="flex items-center justify-between text-orange-800 mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider">Rimossi (Usciti)</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Alumni (Left VC)</span>
             <UserX className="w-4 h-4 text-orange-600" />
           </div>
           <div className="text-2xl font-bold text-orange-950">{hubStats.removed}</div>
-          <p className="text-[11px] text-orange-700/80 mt-1">Non lavorano più nel Venture Capital</p>
+          <p className="text-[11px] text-orange-700/80 mt-1">No longer in Venture Capital</p>
         </button>
 
-        {/* 4. MAI ENTRATI (RIFIUTATI) */}
+        {/* 4. REJECTED */}
         <button
           onClick={() => setActiveStatusTab(activeStatusTab === "rejected" ? "all" : "rejected")}
           className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
@@ -420,11 +474,11 @@ export default function AdminControlRoom() {
           }`}
         >
           <div className="flex items-center justify-between text-rose-800 mb-1">
-            <span className="text-xs font-semibold uppercase tracking-wider">Mai Entrati</span>
+            <span className="text-xs font-semibold uppercase tracking-wider">Rejected</span>
             <XCircle className="w-4 h-4 text-rose-600" />
           </div>
           <div className="text-2xl font-bold text-rose-950">{hubStats.neverAdmitted}</div>
-          <p className="text-[11px] text-rose-700/80 mt-1">Requisiti VC non soddisfatti</p>
+          <p className="text-[11px] text-rose-700/80 mt-1">VC criteria not met</p>
         </button>
       </div>
 
@@ -432,42 +486,45 @@ export default function AdminControlRoom() {
       {runLog && (
         <div className="mb-6 p-5 rounded-2xl border border-foreground/15 bg-white shadow-xs font-mono text-xs">
           <div className="flex justify-between items-center mb-2 pb-2 border-b border-foreground/10">
-            <span className="font-semibold text-foreground">Esito Ultima Esecuzione ({runLog.runId})</span>
-            <span className="text-muted-foreground">{runLog.completedAt}</span>
+            <div className="font-semibold text-foreground flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Verification Run Summary</span>
+            </div>
+            <button
+              onClick={() => setRunLog(null)}
+              className="text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              Close
+            </button>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-muted-foreground">
-            <div>Profili Valutati: <strong className="text-foreground">{runLog.totalProcessed}</strong></div>
-            <div>Nuovi Idonei: <strong className="text-emerald-600">{runLog.newApplicantsApproved}</strong></div>
-            <div>Nuovi Rifiutati: <strong className="text-rose-600">{runLog.newApplicantsRejected}</strong></div>
-            <div>Confermati in VC: <strong className="text-emerald-600">{runLog.existingMembersKept}</strong></div>
-            <div>Rimossi (Usciti): <strong className="text-orange-600">{runLog.existingMembersRemoved}</strong></div>
-          </div>
+          <pre className="overflow-x-auto text-[11px] text-muted-foreground">
+            {JSON.stringify(runLog, null, 2)}
+          </pre>
         </div>
       )}
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+      {/* Filter bar & Search */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground font-medium">Filtro Cartella:</span>
-          <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-foreground/5 border border-foreground/10">
+          <span className="text-xs font-semibold text-foreground">
             {activeStatusTab === "all"
-              ? "Tutti gli Stati"
+              ? "Showing: All Members"
               : activeStatusTab === "active_member"
-              ? "🟢 Dentro (Attivi)"
+              ? "🟢 Showing: Active Members"
               : activeStatusTab === "pending_review"
-              ? "🟡 In Waiting List"
+              ? "🟡 Showing: Waiting List"
               : activeStatusTab === "removed_churned"
-              ? "🟠 Rimossi"
+              ? "🟠 Showing: Alumni (Left VC)"
               : activeStatusTab === "flagged_manual"
-              ? "🟣 Contestazioni"
-              : "🔴 Mai Entrati"}
+              ? "🟣 Showing: Appeals / Inquiries"
+              : "🔴 Showing: Rejected"}
           </span>
           {activeStatusTab !== "all" && (
             <button
               onClick={() => setActiveStatusTab("all")}
               className="text-xs text-muted-foreground hover:text-foreground underline cursor-pointer"
             >
-              Mostra tutti
+              Show all
             </button>
           )}
         </div>
@@ -476,10 +533,10 @@ export default function AdminControlRoom() {
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Cerca nome, fondo VC, ruolo o telefono..."
+            placeholder="Search candidate, VC fund, role, phone..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-4 py-2 text-xs rounded-xl border border-foreground/15 bg-white/80 focus:outline-none focus:ring-1 focus:ring-foreground transition-all shadow-2xs"
+            className="w-full pl-8 pr-4 py-2 text-xs rounded-xl border border-foreground/15 bg-white/80 focus:outline-hidden focus:ring-1 focus:ring-foreground transition-all shadow-2xs"
           />
         </div>
       </div>
@@ -490,30 +547,31 @@ export default function AdminControlRoom() {
           <table className="w-full text-left text-xs">
             <thead className="bg-foreground/[0.03] border-b border-foreground/10 text-muted-foreground font-medium uppercase tracking-wider">
               <tr>
-                <th className="py-3.5 px-4">Professionista</th>
-                <th className="py-3.5 px-4">Fondo & Ruolo</th>
-                <th className="py-3.5 px-4">Hub Assegnato</th>
-                <th className="py-3.5 px-4">Stato nella Community</th>
-                <th className="py-3.5 px-4">Valutazione AI & Motivazione</th>
-                <th className="py-3.5 px-4 text-right">Azioni Rapide</th>
+                <th className="py-3.5 px-4">Candidate</th>
+                <th className="py-3.5 px-4">Fund & Role</th>
+                <th className="py-3.5 px-4">Assigned Hub</th>
+                <th className="py-3.5 px-4">Applied Date</th>
+                <th className="py-3.5 px-4">Community Status</th>
+                <th className="py-3.5 px-4">AI Evaluation & Reasoning</th>
+                <th className="py-3.5 px-4 text-right">Quick Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-foreground/5">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-                    Caricamento membri dell&apos;Hub...
+                    Loading Hub members...
                   </td>
                 </tr>
               ) : displayedMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-muted-foreground space-y-1">
-                    <div className="text-sm font-medium">Nessun professionista trovato in questa sezione.</div>
+                  <td colSpan={7} className="py-12 text-center text-muted-foreground space-y-1">
+                    <div className="text-sm font-medium">No candidates found in this section.</div>
                     <p className="text-xs text-muted-foreground">
                       {selectedHub !== "all"
-                        ? `Non ci sono ancora candidature per l'Hub di ${currentHubInfo.city}.`
-                        : "Nessuna persona corrisponde ai filtri selezionati."}
+                        ? `No applications recorded yet for the ${currentHubInfo.city} Hub.`
+                        : "No candidates match the selected filters."}
                     </p>
                   </td>
                 </tr>
@@ -525,14 +583,16 @@ export default function AdminControlRoom() {
                     <tr key={m.id} className="hover:bg-foreground/[0.015] transition-colors">
                       {/* Name & Contacts */}
                       <td className="py-3.5 px-4">
-                        <div className="font-semibold text-foreground text-sm">{m.full_name}</div>
+                        <div className="font-semibold text-foreground text-sm flex items-center gap-1.5">
+                          <span>{m.full_name}</span>
+                        </div>
                         <div className="text-muted-foreground font-mono text-[11px] flex items-center gap-1.5 mt-0.5">
                           <a
                             href={`https://wa.me/${m.phone_number.replace(/[^0-9]/g, "")}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-emerald-700 hover:underline inline-flex items-center gap-1"
-                            title="Apri chat WhatsApp"
+                            title="Open WhatsApp Chat"
                           >
                             <Phone className="w-3 h-3" />
                             {m.phone_number}
@@ -564,7 +624,7 @@ export default function AdminControlRoom() {
                         <select
                           value={m.hub_city || "Paris"}
                           onChange={(e) => handleMemberAction(m.id, "change_hub", { newHub: e.target.value })}
-                          className="text-xs bg-background/60 border border-foreground/15 rounded-lg px-2 py-1 font-medium cursor-pointer focus:outline-none focus:ring-1 focus:ring-foreground"
+                          className="text-xs bg-background/60 border border-foreground/15 rounded-lg px-2 py-1 font-medium cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-foreground"
                         >
                           {JVC_HUBS.filter((h) => h.id !== "all").map((h) => (
                             <option key={h.city} value={h.city}>
@@ -574,31 +634,39 @@ export default function AdminControlRoom() {
                         </select>
                       </td>
 
+                      {/* Applied Date */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5 text-xs text-neutral-700 font-medium">
+                          <Calendar className="w-3.5 h-3.5 text-neutral-400" />
+                          <span>{formatAppliedDate(m.applied_at || m.created_at)}</span>
+                        </div>
+                      </td>
+
                       {/* Status */}
                       <td className="py-3.5 px-4">
                         {m.status === "active_member" && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            🟢 Dentro (Attivo)
+                            🟢 Active Member
                           </span>
                         )}
                         {m.status === "pending_review" && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                            🟡 In Waiting List
+                            🟡 Waiting List
                           </span>
                         )}
                         {m.status === "removed_churned" && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-50 text-orange-700 border border-orange-200">
-                            🟠 Rimosso (Non in VC)
+                            🟠 Alumni (Left VC)
                           </span>
                         )}
                         {m.status === "rejected" && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">
-                            🔴 Mai Entrato
+                            🔴 Rejected
                           </span>
                         )}
                         {m.status === "flagged_manual" && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 animate-pulse">
-                            🟣 Ha Risposto (Contestazione)
+                            🟣 Appealed (Inquiry)
                           </span>
                         )}
                       </td>
@@ -618,7 +686,7 @@ export default function AdminControlRoom() {
                           </span>
                         ) : (
                           <span className="text-muted-foreground italic">
-                            In attesa della verifica mensile
+                            Pending monthly verification
                           </span>
                         )}
                       </td>
@@ -632,8 +700,8 @@ export default function AdminControlRoom() {
                             <>
                               <button
                                 onClick={() => handleMemberAction(m.id, "re_verify")}
-                                title="Ricontrolla con Lobstr e Gemini"
-                                className="px-2 py-1 rounded-lg border border-foreground/15 hover:bg-foreground/5 transition-colors text-[11px]"
+                                title="Re-check candidate with Lobstr and Gemini AI"
+                                className="px-2 py-1 rounded-lg border border-foreground/15 hover:bg-foreground/5 transition-colors text-[11px] cursor-pointer"
                               >
                                 Re-check
                               </button>
@@ -641,20 +709,20 @@ export default function AdminControlRoom() {
                               {m.status !== "active_member" && (
                                 <button
                                   onClick={() => handleMemberAction(m.id, "force_approve")}
-                                  title="Ammetti nella community e aggiungi a WhatsApp"
-                                  className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-[11px] font-medium"
+                                  title="Admit candidate into community and invite to WhatsApp"
+                                  className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-[11px] font-medium cursor-pointer"
                                 >
-                                  Ammetti
+                                  Approve
                                 </button>
                               )}
 
                               {m.status === "active_member" && (
                                 <button
                                   onClick={() => handleMemberAction(m.id, "force_remove")}
-                                  title="Rimuovi dal gruppo WhatsApp"
-                                  className="px-2.5 py-1 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-[11px] font-medium"
+                                  title="Remove member from WhatsApp group"
+                                  className="px-2.5 py-1 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-[11px] font-medium cursor-pointer"
                                 >
-                                  Rimuovi
+                                  Remove
                                 </button>
                               )}
                             </>

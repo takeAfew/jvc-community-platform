@@ -12,12 +12,15 @@ export async function OPTIONS() {
 }
 
 interface CandidatePayload {
-  fullName: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
   phoneNumber: string;
   linkedinUrl: string;
   currentFirm?: string;
   roleTitle?: string;
   hubCity?: string;
+  appliedAt?: string | Date;
 }
 
 function normalizePhone(raw: string): string {
@@ -30,6 +33,40 @@ function normalizePhone(raw: string): string {
 
 function cleanLinkedinUrl(url: string): string {
   return (url || "").trim().split("?")[0].replace(/\/$/, "");
+}
+
+function parseApplicationDate(raw?: any): string | null {
+  if (!raw) return null;
+  if (raw instanceof Date) return raw.toISOString();
+  const str = String(raw).trim();
+  if (!str) return null;
+
+  // If already standard ISO
+  const isoParsed = new Date(str);
+  if (!isNaN(isoParsed.getTime()) && str.includes("-")) {
+    return isoParsed.toISOString();
+  }
+
+  // Handle DD/MM/YYYY H.mm.ss or DD/MM/YYYY HH:mm:ss
+  const match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2})[.:](\d{1,2})(?:[.:](\d{1,2}))?)?/);
+  if (match) {
+    const [, day, month, year, hours, minutes, seconds] = match;
+    const d = new Date(
+      Date.UTC(
+        parseInt(year, 10),
+        parseInt(month, 10) - 1,
+        parseInt(day, 10),
+        hours ? parseInt(hours, 10) : 0,
+        minutes ? parseInt(minutes, 10) : 0,
+        seconds ? parseInt(seconds, 10) : 0
+      )
+    );
+    if (!isNaN(d.getTime())) {
+      return d.toISOString();
+    }
+  }
+
+  return !isNaN(isoParsed.getTime()) ? isoParsed.toISOString() : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -54,34 +91,60 @@ export async function POST(req: NextRequest) {
     const errors: any[] = [];
 
     for (const item of candidates) {
-      const { fullName, phoneNumber, linkedinUrl, currentFirm, roleTitle, hubCity } = item;
+      const {
+        phoneNumber,
+        linkedinUrl,
+        currentFirm,
+        roleTitle,
+        hubCity,
+        appliedAt,
+      } = item;
+
+      const firstName = (item.firstName || "").trim();
+      const lastName = (item.lastName || "").trim();
+      let fullName = (item.fullName || "").trim();
+
+      if (!fullName && (firstName || lastName)) {
+        fullName = `${firstName} ${lastName}`.trim();
+      } else if (fullName && firstName && lastName && !fullName.includes(lastName)) {
+        fullName = `${firstName} ${lastName}`.trim();
+      }
 
       if (!fullName || !phoneNumber || !linkedinUrl) {
         errors.push({
           item,
-          error: "Full name, phone number, and LinkedIn URL are mandatory.",
+          error: "Full name (or first & last name), phone number, and LinkedIn URL are mandatory.",
         });
         continue;
       }
 
       const cleanPhone = normalizePhone(phoneNumber);
       const cleanLinkedin = cleanLinkedinUrl(linkedinUrl);
+      const parsedAppliedAt = parseApplicationDate(appliedAt) || new Date().toISOString();
+
+      // Resolve proper Hub City (default to Paris for Paris sheet)
+      const targetHub =
+        hubCity && hubCity.toLowerCase() !== "europe" && !hubCity.toLowerCase().includes("play") && !hubCity.toLowerCase().includes("partech")
+          ? hubCity.trim()
+          : "Paris";
+
+      const candidateRecord = {
+        full_name: fullName,
+        first_name: firstName || fullName.split(" ")[0] || null,
+        last_name: lastName || fullName.split(" ").slice(1).join(" ") || null,
+        phone_number: cleanPhone,
+        linkedin_url: cleanLinkedin,
+        current_firm: (currentFirm || "").trim() || null,
+        role_title: (roleTitle || "").trim() || null,
+        hub_city: targetHub,
+        applied_at: parsedAppliedAt,
+        status: "pending_review",
+        updated_at: new Date().toISOString(),
+      };
 
       const { data, error } = await supabase
         .from("jvc_members")
-        .upsert(
-          {
-            full_name: fullName.trim(),
-            phone_number: cleanPhone,
-            linkedin_url: cleanLinkedin,
-            current_firm: (currentFirm || "").trim(),
-            role_title: (roleTitle || "").trim(),
-            hub_city: (hubCity || "Paris").trim(),
-            status: "pending_review",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "phone_number" }
-        )
+        .upsert(candidateRecord, { onConflict: "phone_number" })
         .select()
         .single();
 
@@ -90,14 +153,7 @@ export async function POST(req: NextRequest) {
         if (error.message.includes("idx_jvc_members_linkedin") || error.code === "23505") {
           const { data: updateData, error: updateError } = await supabase
             .from("jvc_members")
-            .update({
-              full_name: fullName.trim(),
-              phone_number: cleanPhone,
-              current_firm: (currentFirm || "").trim(),
-              role_title: (roleTitle || "").trim(),
-              hub_city: (hubCity || "Paris").trim(),
-              updated_at: new Date().toISOString(),
-            })
+            .update(candidateRecord)
             .eq("linkedin_url", cleanLinkedin)
             .select()
             .single();
