@@ -27,6 +27,7 @@ import {
   Send,
   LogOut,
   Calendar,
+  Sparkles,
 } from "lucide-react";
 import { JVCMember } from "@/lib/supabase";
 
@@ -69,6 +70,7 @@ export default function AdminControlRoom() {
   const [runningCheck, setRunningCheck] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [runLog, setRunLog] = useState<any | null>(null);
+  const [analyzingAll, setAnalyzingAll] = useState(false);
 
   // WhatsApp bot status
   const [waStatus, setWaStatus] = useState<{
@@ -83,12 +85,46 @@ export default function AdminControlRoom() {
       const res = await fetch("/api/admin/members");
       if (res.ok) {
         const data = await res.json();
-        setMembers(data.members || []);
+        const memberList = data.members || [];
+        setMembers(memberList);
+
+        // Auto-analyze unverified profiles upon entering the dashboard
+        const unanalyzed = memberList.filter((m: JVCMember) => !m.ai_evaluation);
+        if (unanalyzed.length > 0 && !analyzingAll) {
+          fetch("/api/admin/analyze-all", { method: "POST" })
+            .then((r) => r.json())
+            .then((resData) => {
+              if (resData.evaluatedCount > 0) {
+                fetch("/api/admin/members")
+                  .then((r) => r.json())
+                  .then((d) => setMembers(d.members || []))
+                  .catch(() => {});
+              }
+            })
+            .catch(() => {});
+        }
       }
     } catch (err) {
       console.error("Failed to fetch members:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const triggerAutoAnalyzeAll = async () => {
+    setAnalyzingAll(true);
+    try {
+      const res = await fetch("/api/admin/analyze-all", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        await fetchMembers();
+      } else {
+        alert("AI Analysis notice: " + (data.error || "Please try again shortly."));
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setAnalyzingAll(false);
     }
   };
 
@@ -365,7 +401,17 @@ export default function AdminControlRoom() {
         </div>
 
         {/* Action Controls for this Hub */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={triggerAutoAnalyzeAll}
+            disabled={analyzingAll || runningCheck}
+            className="px-3.5 py-2 rounded-xl bg-purple-50 text-purple-900 border border-purple-200 hover:bg-purple-100 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 text-xs font-medium shadow-2xs"
+            title="Runs Gemini AI evaluation on all pending profiles"
+          >
+            <Sparkles className={`w-3.5 h-3.5 text-purple-600 ${analyzingAll ? "animate-spin" : ""}`} />
+            {analyzingAll ? "Analyzing with AI..." : "Analyze with AI"}
+          </button>
+
           <button
             onClick={() => triggerMonthlyVerification(true)}
             disabled={runningCheck}
@@ -552,7 +598,7 @@ export default function AdminControlRoom() {
                 <th className="py-3.5 px-4">Assigned Hub</th>
                 <th className="py-3.5 px-4">Applied Date</th>
                 <th className="py-3.5 px-4">Community Status</th>
-                <th className="py-3.5 px-4">AI Evaluation & Reasoning</th>
+                <th className="py-3.5 px-4 min-w-[320px]">AI Evaluation & Reasoning</th>
                 <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[180px]">Quick Actions</th>
               </tr>
             </thead>
@@ -671,23 +717,43 @@ export default function AdminControlRoom() {
                         )}
                       </td>
 
-                      {/* AI Evaluation */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        {m.rejection_reason ? (
-                          <span className="text-rose-600 line-clamp-2" title={m.rejection_reason}>
-                            {m.rejection_reason}
-                          </span>
-                        ) : m.ai_evaluation?.reasoning ? (
-                          <span
-                            className="text-muted-foreground line-clamp-2"
-                            title={m.ai_evaluation.reasoning}
-                          >
-                            {m.ai_evaluation.reasoning}
-                          </span>
+                      {/* AI Evaluation & Reasoning */}
+                      <td className="py-3.5 px-4 min-w-[320px] max-w-md">
+                        {m.ai_evaluation ? (
+                          <div className="space-y-1.5">
+                            {/* Final verdict badge with emoji */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {m.ai_evaluation.confidence < 0.7 ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-300">
+                                  ⚠️ Doubtful ({Math.round((m.ai_evaluation.confidence || 0.6) * 100)}%)
+                                </span>
+                              ) : m.is_eligible_vc ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                  ✅ Eligible ({Math.round((m.ai_evaluation.confidence || 0.95) * 100)}%)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-800 border border-rose-300">
+                                  ❌ Ineligible ({Math.round((m.ai_evaluation.confidence || 0.8) * 100)}%)
+                                </span>
+                              )}
+
+                              {m.ai_evaluation.firm_category && (
+                                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-md bg-neutral-100 text-neutral-600 border border-neutral-200">
+                                  {m.ai_evaluation.firm_category.replace("_", " ")}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Full text without clipping */}
+                            <p className="text-xs text-neutral-700 leading-relaxed whitespace-normal break-words">
+                              {m.rejection_reason || m.ai_evaluation.reasoning || "Evaluation completed."}
+                            </p>
+                          </div>
                         ) : (
-                          <span className="text-muted-foreground italic">
-                            Pending monthly verification
-                          </span>
+                          <div className="flex items-center gap-1.5 text-xs text-neutral-400 italic">
+                            <Clock className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
+                            <span>⏳ Pending AI Analysis</span>
+                          </div>
                         )}
                       </td>
 

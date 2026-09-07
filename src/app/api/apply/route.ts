@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { evaluateVCEligibility, VCEvaluationResult } from "@/lib/ai-evaluator";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,6 +129,18 @@ export async function POST(req: NextRequest) {
           ? hubCity.trim()
           : "Paris";
 
+      // 🤖 Immediate AI evaluation with Gemini 3.6 Flash upon entering the platform
+      let evalResult: VCEvaluationResult | null = null;
+      try {
+        evalResult = await evaluateVCEligibility({
+          full_name: fullName,
+          role_title: (roleTitle || "").trim() || null,
+          current_firm: (currentFirm || "").trim() || null,
+        });
+      } catch (err) {
+        console.warn("Immediate AI evaluation warning for", fullName, err);
+      }
+
       const candidateRecord = {
         full_name: fullName,
         first_name: firstName || fullName.split(" ")[0] || null,
@@ -139,6 +152,13 @@ export async function POST(req: NextRequest) {
         hub_city: targetHub,
         applied_at: parsedAppliedAt,
         status: "pending_review",
+        is_eligible_vc: evalResult ? evalResult.is_eligible_vc : null,
+        ai_evaluation: evalResult || null,
+        rejection_reason:
+          evalResult && !evalResult.is_eligible_vc
+            ? evalResult.rejection_reason_message || evalResult.reasoning
+            : null,
+        last_verified_at: evalResult ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       };
 
