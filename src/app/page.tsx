@@ -596,8 +596,8 @@ export default function AdminControlRoom() {
                 <th className="py-3.5 px-4">Candidate</th>
                 <th className="py-3.5 px-4">Fund & Role</th>
                 <th className="py-3.5 px-4">Assigned Hub</th>
-                <th className="py-3.5 px-4">Applied Date</th>
-                <th className="py-3.5 px-4">Community Status</th>
+                <th className="py-3.5 px-4 whitespace-nowrap">Applied Date</th>
+                <th className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">Community Status</th>
                 <th className="py-3.5 px-4 min-w-[320px]">AI Evaluation & Reasoning</th>
                 <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[180px]">Quick Actions</th>
               </tr>
@@ -689,29 +689,29 @@ export default function AdminControlRoom() {
                       </td>
 
                       {/* Status */}
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 whitespace-nowrap min-w-[150px]">
                         {m.status === "active_member" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 whitespace-nowrap">
                             🟢 Active Member
                           </span>
                         )}
                         {m.status === "pending_review" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
                             🟡 Waiting List
                           </span>
                         )}
                         {m.status === "removed_churned" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-50 text-orange-700 border border-orange-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-orange-50 text-orange-700 border border-orange-200 whitespace-nowrap">
                             🟠 Alumni (Left VC)
                           </span>
                         )}
                         {m.status === "rejected" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap">
                             🔴 Rejected
                           </span>
                         )}
                         {m.status === "flagged_manual" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 animate-pulse">
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-purple-50 text-purple-700 border border-purple-200 animate-pulse whitespace-nowrap">
                             🟣 Appealed (Inquiry)
                           </span>
                         )}
