@@ -279,7 +279,7 @@ export default function AdminControlRoom() {
         </div>
 
         {/* Hub Pills Scrollable */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin">
+        <div className="flex items-center gap-2.5 overflow-x-auto py-2.5 px-1 scrollbar-thin">
           {JVC_HUBS.map((hub) => {
             const isSelected = selectedHub === hub.id;
             const count =
@@ -293,17 +293,17 @@ export default function AdminControlRoom() {
               <button
                 key={hub.id}
                 onClick={() => setSelectedHub(hub.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer border ${
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer border ${
                   isSelected
-                    ? "bg-foreground text-background border-foreground shadow-sm scale-[1.02]"
-                    : "bg-white/70 text-foreground border-foreground/10 hover:bg-white hover:border-foreground/20"
+                    ? "bg-[#262626] text-white border-[#262626] shadow-xs"
+                    : "bg-white/80 text-neutral-800 border-neutral-200 hover:bg-white hover:border-neutral-400"
                 }`}
               >
                 <span className="text-sm">{hub.flag}</span>
                 <span>{hub.name}</span>
                 <span
-                  className={`text-[11px] px-1.5 py-0.5 rounded-full ${
-                    isSelected ? "bg-white/20 text-white" : "bg-foreground/5 text-muted-foreground"
+                  className={`text-[11px] px-2 py-0.5 rounded-full font-mono ${
+                    isSelected ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-600"
                   }`}
                 >
                   {count}
