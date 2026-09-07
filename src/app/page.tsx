@@ -553,7 +553,7 @@ export default function AdminControlRoom() {
                 <th className="py-3.5 px-4">Applied Date</th>
                 <th className="py-3.5 px-4">Community Status</th>
                 <th className="py-3.5 px-4">AI Evaluation & Reasoning</th>
-                <th className="py-3.5 px-4 text-right">Quick Actions</th>
+                <th className="py-3.5 px-4 text-right whitespace-nowrap min-w-[180px]">Quick Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-foreground/5">
@@ -692,8 +692,8 @@ export default function AdminControlRoom() {
                       </td>
 
                       {/* Quick Actions */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="inline-flex items-center gap-1.5">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap min-w-[180px]">
+                        <div className="inline-flex items-center justify-end gap-2 whitespace-nowrap">
                           {isActing ? (
                             <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
                           ) : (
@@ -701,7 +701,7 @@ export default function AdminControlRoom() {
                               <button
                                 onClick={() => handleMemberAction(m.id, "re_verify")}
                                 title="Re-check candidate with Lobstr and Gemini AI"
-                                className="px-2 py-1 rounded-lg border border-foreground/15 hover:bg-foreground/5 transition-colors text-[11px] cursor-pointer"
+                                className="px-2.5 py-1 rounded-lg border border-foreground/15 hover:bg-foreground/5 transition-colors text-[11px] font-medium whitespace-nowrap shrink-0 cursor-pointer"
                               >
                                 Re-check
                               </button>
@@ -710,7 +710,7 @@ export default function AdminControlRoom() {
                                 <button
                                   onClick={() => handleMemberAction(m.id, "force_approve")}
                                   title="Admit candidate into community and invite to WhatsApp"
-                                  className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-[11px] font-medium cursor-pointer"
+                                  className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors text-[11px] font-medium whitespace-nowrap shrink-0 cursor-pointer"
                                 >
                                   Approve
                                 </button>
@@ -720,7 +720,7 @@ export default function AdminControlRoom() {
                                 <button
                                   onClick={() => handleMemberAction(m.id, "force_remove")}
                                   title="Remove member from WhatsApp group"
-                                  className="px-2.5 py-1 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-[11px] font-medium cursor-pointer"
+                                  className="px-2.5 py-1 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 transition-colors text-[11px] font-medium whitespace-nowrap shrink-0 cursor-pointer"
                                 >
                                   Remove
                                 </button>
