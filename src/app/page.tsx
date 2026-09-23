@@ -28,6 +28,11 @@ import {
   LogOut,
   Calendar,
   Sparkles,
+  Shield,
+  ShieldAlert,
+  Lock,
+  Unlock,
+  X,
 } from "lucide-react";
 import { JVCMember } from "@/lib/supabase";
 
@@ -72,12 +77,22 @@ export default function AdminControlRoom() {
   const [runLog, setRunLog] = useState<any | null>(null);
   const [analyzingAll, setAnalyzingAll] = useState(false);
 
-  // WhatsApp bot status
+  // WhatsApp bot status & Project Mode Safeguards
   const [waStatus, setWaStatus] = useState<{
     status: string;
     phoneNumber: string | null;
+    pushName?: string | null;
+    engineState?: string | null;
     qrCodeDataUrl: string | null;
+    projectMode?: "DEV" | "LIVE";
   }>({ status: "disconnected", phoneNumber: null, qrCodeDataUrl: null });
+
+  const [projectMode, setProjectMode] = useState<"DEV" | "LIVE">("DEV");
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockStep, setUnlockStep] = useState<1 | 2 | 3>(1);
+  const [confirmationPhrase, setConfirmationPhrase] = useState("");
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [blockedAlert, setBlockedAlert] = useState<string | null>(null);
 
   const fetchMembers = async () => {
     try {
@@ -134,9 +149,72 @@ export default function AdminControlRoom() {
       if (res.ok) {
         const data = await res.json();
         setWaStatus(data);
+        if (data.projectMode) {
+          setProjectMode(data.projectMode);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch WA status:", err);
+    }
+  };
+
+  const handleLockToDev = async () => {
+    try {
+      const res = await fetch("/api/admin/project-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetMode: "DEV" }),
+      });
+      if (res.ok) {
+        setProjectMode("DEV");
+        setShowUnlockModal(false);
+        setUnlockStep(1);
+        setConfirmationPhrase("");
+        setBlockedAlert("🛡️ DEV Mode successfully activated! All WhatsApp additions and removals are strictly locked.");
+        await fetchWaStatus();
+      }
+    } catch (err) {
+      console.error("Failed to lock to DEV:", err);
+    }
+  };
+
+  const handleUnlockLive = async () => {
+    if (unlockStep < 3) {
+      setUnlockStep((prev) => (prev + 1) as 1 | 2 | 3);
+      return;
+    }
+
+    if (confirmationPhrase.trim().toUpperCase() !== "ENABLE LIVE") {
+      alert("Please type 'ENABLE LIVE' exactly to proceed.");
+      return;
+    }
+
+    setUnlockLoading(true);
+    try {
+      const res = await fetch("/api/admin/project-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetMode: "LIVE",
+          confirmationCount: 3,
+          confirmationPhrase: "ENABLE LIVE",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setProjectMode("LIVE");
+        setShowUnlockModal(false);
+        setUnlockStep(1);
+        setConfirmationPhrase("");
+        await fetchWaStatus();
+      } else {
+        alert(data.error || "Failed to switch to LIVE mode.");
+      }
+    } catch (err: any) {
+      alert("Error: " + err.message);
+    } finally {
+      setUnlockLoading(false);
     }
   };
 
@@ -158,6 +236,11 @@ export default function AdminControlRoom() {
   }, []);
 
   const triggerMonthlyVerification = async (dryRun: boolean) => {
+    if (projectMode === "DEV" && !dryRun) {
+      alert("🛡️ DEV Mode Safeguard Active: Verification will run in Simulation (Dry Run) mode. Real WhatsApp group modifications are disabled in DEV mode.");
+      dryRun = true;
+    }
+
     const hubLabel = selectedHub === "all" ? "all European Hubs" : `the ${selectedHub.toUpperCase()} Hub`;
     const confirmed = confirm(
       dryRun
@@ -186,6 +269,15 @@ export default function AdminControlRoom() {
   };
 
   const handleMemberAction = async (memberId: string, action: string, extra?: any) => {
+    if ((action === "force_approve" || action === "force_remove") && projectMode === "DEV") {
+      setBlockedAlert(
+        action === "force_approve"
+          ? "🛡️ DEV Mode Safeguard: Adding candidates to WhatsApp groups is strictly disabled in DEV mode. No members were added."
+          : "🛡️ DEV Mode Safeguard: Removing members from WhatsApp groups is strictly disabled in DEV mode. No members were removed."
+      );
+      return;
+    }
+
     setActionLoadingId(memberId);
     try {
       const res = await fetch("/api/admin/members", {
@@ -193,7 +285,10 @@ export default function AdminControlRoom() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ memberId, action, ...extra }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (!res.ok && data.blocked) {
+        setBlockedAlert(data.error);
+      } else if (res.ok) {
         await fetchMembers();
       }
     } catch (err) {
@@ -270,9 +365,10 @@ export default function AdminControlRoom() {
           </div>
         </div>
 
-        {/* WhatsApp Connection Widget + Sign Out */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-foreground/10 text-xs font-medium bg-white/60 shadow-xs">
+        {/* WhatsApp Connection Widget + Project Mode Safeguard + Sign Out */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* WhatsApp Connection Status */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-foreground/10 text-xs font-medium bg-white/70 shadow-2xs">
             <span
               className={`w-2 h-2 rounded-full ${
                 waStatus.status === "connected"
@@ -282,27 +378,56 @@ export default function AdminControlRoom() {
                   : "bg-rose-500"
               }`}
             />
-            <span className="capitalize">WhatsApp Bot: {waStatus.status.replace("_", " ")}</span>
-            {waStatus.phoneNumber && (
-              <span className="text-muted-foreground font-mono">({waStatus.phoneNumber})</span>
-            )}
+            <span className="font-semibold text-neutral-800">
+              WhatsApp: {waStatus.status === "connected" ? "Connected" : waStatus.status}
+            </span>
+            <span className="text-muted-foreground font-mono text-[11px]">
+              ({waStatus.phoneNumber || "+33 7 45 42 66 99"} • {waStatus.pushName || "JVC"})
+            </span>
           </div>
 
-          {waStatus.status !== "connected" && (
-            <button
-              onClick={connectWhatsApp}
-              className="px-3.5 py-1.5 text-xs font-medium rounded-xl bg-foreground text-background hover:opacity-90 flex items-center gap-1.5 cursor-pointer shadow-xs transition-all"
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              Connect WhatsApp
-            </button>
+          {/* Project Mode Safeguard Badge & Controls */}
+          {projectMode === "DEV" ? (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                <Shield className="w-3.5 h-3.5 text-amber-700" />
+                <span>DEV MODE</span>
+              </span>
+              <button
+                onClick={() => {
+                  setShowUnlockModal(true);
+                  setUnlockStep(1);
+                  setConfirmationPhrase("");
+                }}
+                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-amber-900 text-white hover:bg-amber-950 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                title="Unlock LIVE mode (Requires 3 consecutive confirmations)"
+              >
+                <Lock className="w-3 h-3 text-amber-200" />
+                <span>Unlock LIVE</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-rose-100 text-rose-900 border border-rose-300 animate-pulse shadow-2xs">
+                <ShieldAlert className="w-3.5 h-3.5 text-rose-700" />
+                <span>LIVE MODE</span>
+              </span>
+              <button
+                onClick={handleLockToDev}
+                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                title="Lock back to safe DEV mode"
+              >
+                <Shield className="w-3 h-3 text-emerald-400" />
+                <span>Lock to DEV</span>
+              </button>
+            </div>
           )}
 
           {/* Sign Out Button */}
           <button
             onClick={handleLogout}
             title="Sign out of Control Room"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200/80 bg-white/70 hover:bg-white text-neutral-600 hover:text-neutral-900 text-xs font-medium cursor-pointer shadow-xs transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200/80 bg-white/70 hover:bg-white text-neutral-600 hover:text-neutral-900 text-xs font-medium cursor-pointer shadow-2xs transition-all"
           >
             <LogOut className="w-3.5 h-3.5 text-neutral-500" />
             <span>Sign Out</span>
@@ -310,23 +435,214 @@ export default function AdminControlRoom() {
         </div>
       </header>
 
-      {/* QR Code Banner if ready */}
-      {waStatus.status === "qr_ready" && waStatus.qrCodeDataUrl && (
-        <div className="my-4 p-5 rounded-2xl border border-amber-200 bg-amber-50/70 flex flex-col sm:flex-row items-center gap-6 shadow-xs">
-          <img
-            src={waStatus.qrCodeDataUrl}
-            alt="WhatsApp QR Code"
-            className="w-36 h-36 rounded-xl shadow-xs border border-amber-200 bg-white p-2"
-          />
-          <div className="space-y-1 text-center sm:text-left">
-            <div className="inline-flex items-center gap-2 text-amber-900 font-semibold text-sm">
-              <QrCode className="w-4 h-4" />
-              Scan QR Code with WhatsApp
+      {/* 🛡️ DEV MODE ACTIVE BANNER */}
+      {projectMode === "DEV" && (
+        <div className="my-4 p-4 rounded-2xl border border-amber-300 bg-amber-50/90 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-2xs">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="p-2.5 bg-amber-100/90 rounded-2xl text-amber-800 shrink-0 border border-amber-300">
+              <Shield className="w-5 h-5" />
             </div>
-            <p className="text-xs text-amber-800/80 max-w-lg leading-relaxed">
-              Open WhatsApp on the bot device &gt; Linked Devices &gt; Link a device.
-              Once linked, the bot will automatically manage member admissions and offboarding for each regional Hub.
+            <div>
+              <div className="text-sm font-bold text-amber-950 flex items-center gap-2 flex-wrap">
+                <span>🛡️ DEV Mode Active — Group Modifications Blocked</span>
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-md bg-amber-200 text-amber-900 font-extrabold border border-amber-300">
+                  SAFEGUARD ON
+                </span>
+              </div>
+              <p className="text-xs text-amber-900/90 mt-0.5 leading-relaxed">
+                WhatsApp is connected in monitor-only mode. In accordance with safety rules, no registered candidates will be added to or removed from WhatsApp groups.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setShowUnlockModal(true);
+              setUnlockStep(1);
+              setConfirmationPhrase("");
+            }}
+            className="shrink-0 px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-900 text-white hover:bg-amber-950 transition-all shadow-xs flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            Switch to LIVE Mode (3 Confirmations)
+          </button>
+        </div>
+      )}
+
+      {/* 🛡️ TRIPLE CONFIRMATION MODAL TO EXIT DEV MODE */}
+      {showUnlockModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-foreground/15 max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-foreground/10">
+              <div className="flex items-center gap-2 text-rose-700 font-bold text-sm">
+                <ShieldAlert className="w-5 h-5 text-rose-600" />
+                <span>Security Protocol: Exit DEV Mode</span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowUnlockModal(false);
+                  setUnlockStep(1);
+                  setConfirmationPhrase("");
+                }}
+                className="text-muted-foreground hover:text-foreground cursor-pointer p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Stepper Indicator */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2 px-1">
+                <div className={`flex-1 h-2 rounded-full transition-all ${unlockStep >= 1 ? "bg-rose-600" : "bg-neutral-200"}`} />
+                <div className={`flex-1 h-2 rounded-full transition-all ${unlockStep >= 2 ? "bg-rose-600" : "bg-neutral-200"}`} />
+                <div className={`flex-1 h-2 rounded-full transition-all ${unlockStep >= 3 ? "bg-rose-600" : "bg-neutral-200"}`} />
+              </div>
+              <div className="text-center font-mono text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">
+                Confirmation Step {unlockStep} of 3
+              </div>
+            </div>
+
+            {/* Step 1 */}
+            {unlockStep === 1 && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-950 text-xs leading-relaxed space-y-2">
+                  <div className="font-bold text-sm flex items-center gap-1.5 text-rose-800">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    First Confirmation (1/3)
+                  </div>
+                  <p>
+                    You are requesting to exit <strong>DEV Mode</strong> and enable <strong>LIVE WhatsApp group modifications</strong>.
+                  </p>
+                  <p>
+                    In LIVE mode, approving candidates or executing live checks will immediately add or remove participants from real WhatsApp groups.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => setShowUnlockModal(false)}
+                    className="px-4 py-2 text-xs font-medium rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 cursor-pointer"
+                  >
+                    Cancel & Stay in DEV
+                  </button>
+                  <button
+                    onClick={() => setUnlockStep(2)}
+                    className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs"
+                  >
+                    I Understand &bull; Proceed to Step 2 (1/3) &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2 */}
+            {unlockStep === 2 && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 text-xs leading-relaxed space-y-2">
+                  <div className="font-bold text-sm flex items-center gap-1.5 text-amber-800">
+                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    Second Confirmation (2/3)
+                  </div>
+                  <p>
+                    Target WhatsApp Account: <strong>+33 7 45 42 66 99 (JVC)</strong>.<br />
+                    Target Group: <strong>JVC - Paris (120363426447392585@g.us)</strong>.
+                  </p>
+                  <p className="text-amber-900 font-semibold">
+                    Ensure that all pending profiles in the Waiting List have been manually reviewed before continuing.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowUnlockModal(false);
+                      setUnlockStep(1);
+                    }}
+                    className="px-4 py-2 text-xs font-medium rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 cursor-pointer"
+                  >
+                    Cancel & Stay in DEV
+                  </button>
+                  <button
+                    onClick={() => setUnlockStep(3)}
+                    className="px-4 py-2 text-xs font-bold rounded-xl bg-amber-600 hover:bg-amber-700 text-white cursor-pointer shadow-xs"
+                  >
+                    Acknowledge Risks &bull; Proceed to Step 3 (2/3) &rarr;
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3 */}
+            {unlockStep === 3 && (
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl bg-neutral-900 text-white text-xs leading-relaxed space-y-2.5 shadow-xs">
+                  <div className="font-bold text-sm flex items-center gap-1.5 text-rose-400">
+                    <Lock className="w-4 h-4 text-rose-400" />
+                    Final Confirmation (3/3): Type "ENABLE LIVE"
+                  </div>
+                  <p className="text-neutral-300">
+                    To prevent accidental activation, type <span className="font-mono font-bold text-amber-400">ENABLE LIVE</span> below to unlock LIVE mode.
+                  </p>
+                  <input
+                    type="text"
+                    value={confirmationPhrase}
+                    onChange={(e) => setConfirmationPhrase(e.target.value)}
+                    placeholder="Type ENABLE LIVE"
+                    className="w-full mt-2 px-3.5 py-2.5 text-sm font-mono rounded-xl bg-neutral-800 border border-neutral-700 text-white placeholder-neutral-500 focus:outline-hidden focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      setShowUnlockModal(false);
+                      setUnlockStep(1);
+                      setConfirmationPhrase("");
+                    }}
+                    className="px-4 py-2 text-xs font-medium rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 cursor-pointer"
+                  >
+                    Cancel & Stay in DEV
+                  </button>
+                  <button
+                    onClick={handleUnlockLive}
+                    disabled={confirmationPhrase.trim().toUpperCase() !== "ENABLE LIVE" || unlockLoading}
+                    className="px-4 py-2 text-xs font-bold rounded-xl bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    {unlockLoading ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Unlock className="w-3.5 h-3.5" />
+                    )}
+                    Confirm & Unlock LIVE Mode (3/3)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 🛡️ BLOCKED ACTION ALERT MODAL */}
+      {blockedAlert && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-amber-300 max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-100 rounded-2xl text-amber-700 shrink-0 border border-amber-200">
+                <Shield className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-foreground">Action Safeguarded (DEV Mode)</h3>
+                <p className="text-[11px] text-muted-foreground">Protected by JVC Community Engine</p>
+              </div>
+            </div>
+            <p className="text-xs text-neutral-800 leading-relaxed bg-amber-50/80 p-3.5 rounded-xl border border-amber-200">
+              {blockedAlert}
             </p>
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={() => setBlockedAlert(null)}
+                className="px-4 py-2 text-xs font-bold rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 cursor-pointer shadow-xs"
+              >
+                Understood
+              </button>
+            </div>
           </div>
         </div>
       )}

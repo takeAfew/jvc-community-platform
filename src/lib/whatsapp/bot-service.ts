@@ -189,24 +189,30 @@ export function formatPhoneToJid(phone: string): string {
   return `${digits}@s.whatsapp.net`;
 }
 
+import { whatsapp } from "@/lib/whatsapp";
+import { isDevMode } from "@/lib/project-mode";
+
 /**
- * Send a direct WhatsApp text message
+ * Send a direct WhatsApp text message (respecting DEV mode safeguard)
  */
 export async function sendDirectMessage(phone: string, text: string): Promise<boolean> {
-  const client = await startWhatsAppClient();
-  const jid = formatPhoneToJid(phone);
+  const dev = await isDevMode();
+  if (dev) {
+    console.warn(`🛡️ [DEV MODE SAFEGUARD] sendDirectMessage blocked for ${phone}: "${text.slice(0, 80)}..."`);
+    return false;
+  }
 
   try {
-    await client.sendMessage(jid, { text });
-
-    // Log outbound message
-    await supabase.from("jvc_wa_messages").insert({
-      phone_number: phone,
-      direction: "outbound",
-      message_text: text,
-    });
-
-    return true;
+    const res = await whatsapp.sendMessage(phone, text);
+    if (!res.blocked) {
+      await supabase.from("jvc_wa_messages").insert({
+        phone_number: phone,
+        direction: "outbound",
+        message_text: text,
+      });
+      return true;
+    }
+    return false;
   } catch (err) {
     console.error(`Failed to send WhatsApp message to ${phone}:`, err);
     return false;
@@ -215,7 +221,7 @@ export async function sendDirectMessage(phone: string, text: string): Promise<bo
 
 /**
  * Add a qualified candidate to the JVC WhatsApp group.
- * If privacy restrictions block direct addition, sends private invite link!
+ * STRICT DEV MODE SAFEGUARD: If DEV mode is active, operation is totally blocked.
  */
 export async function addCandidateToGroup(
   phone: string,
@@ -224,32 +230,24 @@ export async function addCandidateToGroup(
   groupJid?: string,
   inviteLink?: string
 ): Promise<WhatsAppActionResult> {
-  const client = await startWhatsAppClient();
-  const jid = formatPhoneToJid(phone);
+  const dev = await isDevMode();
+  const targetGroup = groupJid || whatsapp.defaultGroupId;
 
-  // Fallback defaults from settings if not passed
-  const targetGroup = groupJid || process.env.WHATSAPP_GROUP_JID || "";
-  const groupInviteUrl = inviteLink || process.env.WHATSAPP_GROUP_INVITE_LINK || "https://chat.whatsapp.com/JVCCommunityInvite";
-
-  if (!targetGroup) {
-    // If no group JID configured yet, send direct welcome message with invite link
-    const welcomeMsg = `Hey ${fullName}! 👋\n\nWelcome to JVC (Junior VC Community Europe)!\nWe verified your profile at ${firmName} and are thrilled to have you with us.\n\nHere is your exclusive link to join your European peers:\n${groupInviteUrl}\n\nOne rule: active VC peers only. See you inside! 🚀`;
-    await sendDirectMessage(phone, welcomeMsg);
-
+  if (dev) {
+    console.warn(
+      `🛡️ [DEV MODE SAFEGUARD] Refused to add candidate ${fullName} (${phone}) to WhatsApp group ${targetGroup}. DEV mode is active.`
+    );
     return {
-      success: true,
-      action: "invite_sent_dm",
+      success: false,
+      action: "blocked_dev_mode",
       recipient: phone,
-      details: "No group JID specified; sent direct message with exclusive invite link.",
+      details: "DEV MODE SAFEGUARD: System is in DEV mode. No candidate will be added to WhatsApp groups.",
     };
   }
 
   try {
-    const res = await client.groupParticipantsUpdate(targetGroup, [jid], "add");
-    const resultStatus = res?.[0]?.status;
-
-    if (resultStatus === "200") {
-      // Added directly!
+    const res = await whatsapp.addParticipant(targetGroup, phone);
+    if (res.success) {
       const welcomeDirectMsg = `Hey ${fullName}! 👋\n\nWelcome to JVC (Junior VC Community Europe)!\nWe verified your profile at ${firmName} and have just added you to the official group.\n\nGreat to have you in the ecosystem! 🇪🇺`;
       await sendDirectMessage(phone, welcomeDirectMsg);
 
@@ -257,36 +255,30 @@ export async function addCandidateToGroup(
         success: true,
         action: "added_to_group",
         recipient: phone,
-        details: "Directly added to WhatsApp group.",
+        details: "Directly added to WhatsApp group via WAHA API.",
       };
     } else {
-      // Privacy restriction (status 403 or code 408) -> Send invite link via DM
-      const welcomeInviteMsg = `Hey ${fullName}! 👋\n\nWelcome to JVC (Junior VC Community Europe)!\nYour profile at ${firmName} is verified.\n\nBecause of your WhatsApp privacy settings, we couldn't add you directly. Please join via your private invite link:\n${groupInviteUrl}\n\nLooking forward to meeting you!`;
-      await sendDirectMessage(phone, welcomeInviteMsg);
-
       return {
-        success: true,
-        action: "invite_sent_dm",
+        success: false,
+        action: "error",
         recipient: phone,
-        details: `Privacy settings restricted direct add (status ${resultStatus}). Sent invite link via DM.`,
+        details: res.message,
       };
     }
   } catch (err: any) {
-    console.warn(`Direct group add failed for ${phone}, falling back to DM invite:`, err?.message);
-    const fallbackMsg = `Hey ${fullName}! 👋\n\nWelcome to JVC! Your profile at ${firmName} has been approved.\nHere is the link to join the official group:\n${groupInviteUrl}`;
-    await sendDirectMessage(phone, fallbackMsg);
-
+    console.warn(`Direct group add failed for ${phone}:`, err?.message);
     return {
-      success: true,
-      action: "invite_sent_dm",
+      success: false,
+      action: "error",
       recipient: phone,
-      details: `Fallback invite link sent via DM.`,
+      details: err?.message,
     };
   }
 }
 
 /**
- * Remove a member from the group who no longer works in VC, and send explanation message
+ * Remove a member from the group who no longer works in VC.
+ * STRICT DEV MODE SAFEGUARD: If DEV mode is active, operation is totally blocked.
  */
 export async function removeMemberFromGroup(
   phone: string,
@@ -294,28 +286,40 @@ export async function removeMemberFromGroup(
   reason: string,
   groupJid?: string
 ): Promise<WhatsAppActionResult> {
-  const client = await startWhatsAppClient();
-  const jid = formatPhoneToJid(phone);
-  const targetGroup = groupJid || process.env.WHATSAPP_GROUP_JID || "";
+  const dev = await isDevMode();
+  const targetGroup = groupJid || whatsapp.defaultGroupId;
 
-  if (targetGroup) {
-    try {
-      await client.groupParticipantsUpdate(targetGroup, [jid], "remove");
-    } catch (err: any) {
-      console.warn(`Could not remove ${phone} from group (might not be in group or not admin):`, err?.message);
-    }
+  if (dev) {
+    console.warn(
+      `🛡️ [DEV MODE SAFEGUARD] Refused to remove member ${fullName} (${phone}) from WhatsApp group ${targetGroup}. DEV mode is active.`
+    );
+    return {
+      success: false,
+      action: "blocked_dev_mode",
+      recipient: phone,
+      details: "DEV MODE SAFEGUARD: System is in DEV mode. No member will be removed from WhatsApp groups.",
+    };
   }
 
-  // Send polite offboarding message
-  const offboardMsg = `Hi ${fullName},\n\nAs part of our monthly JVC ecosystem check, we noticed your LinkedIn profile no longer indicates an active role in venture capital (${reason}).\n\nTo ensure the community remains 100% focused on active peers, we have stepped you out of the group for now.\n\nYou are always welcome back as soon as your path returns to the ecosystem! If this was an error or you transitioned to a new fund, please reply directly to this message. 🙏`;
-  await sendDirectMessage(phone, offboardMsg);
+  try {
+    await whatsapp.removeParticipant(targetGroup, phone);
+    const offboardMsg = `Hi ${fullName},\n\nAs part of our monthly JVC ecosystem check, we noticed your LinkedIn profile no longer indicates an active role in venture capital (${reason}).\n\nTo ensure the community remains 100% focused on active peers, we have stepped you out of the group for now.\n\nYou are always welcome back as soon as your path returns to the ecosystem! If this was an error or you transitioned to a new fund, please reply directly to this message. 🙏`;
+    await sendDirectMessage(phone, offboardMsg);
 
-  return {
-    success: true,
-    action: "removed_from_group",
-    recipient: phone,
-    details: `Removed from group and sent offboarding DM.`,
-  };
+    return {
+      success: true,
+      action: "removed_from_group",
+      recipient: phone,
+      details: "Removed from group and sent offboarding DM via WAHA API.",
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      action: "error",
+      recipient: phone,
+      details: err?.message,
+    };
+  }
 }
 
 /**
@@ -326,8 +330,20 @@ export async function sendRejectionNotice(
   fullName: string,
   reason: string
 ): Promise<WhatsAppActionResult> {
-  const rejectionMsg = `Hi ${fullName},\n\nThank you for applying to JVC (Junior VC Community Europe).\n\nOur single community rule is that members must currently work within the European venture capital ecosystem (funds, venture studios, accelerators, family offices, venture debt).\n\nBased on your current profile, we were unable to confirm an active junior VC role: ${reason}.\n\nIf there was a mistake or your status has recently changed, simply reply directly to this message and we will review it personally! 🙌`;
+  const dev = await isDevMode();
+  if (dev) {
+    console.warn(
+      `🛡️ [DEV MODE SAFEGUARD] Simulated rejection notice to ${fullName} (${phone}) in DEV mode.`
+    );
+    return {
+      success: true,
+      action: "blocked_dev_mode",
+      recipient: phone,
+      details: "Simulated rejection notice in DEV mode (no WhatsApp message dispatched).",
+    };
+  }
 
+  const rejectionMsg = `Hi ${fullName},\n\nThank you for applying to JVC (Junior VC Community Europe).\n\nOur single community rule is that members must currently work within the European venture capital ecosystem (funds, venture studios, accelerators, family offices, venture debt).\n\nBased on your current profile, we were unable to confirm an active junior VC role: ${reason}.\n\nIf there was a mistake or your status has recently changed, simply reply directly to this message and we will review it personally! 🙌`;
   await sendDirectMessage(phone, rejectionMsg);
 
   return {

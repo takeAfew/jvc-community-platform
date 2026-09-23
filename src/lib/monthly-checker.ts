@@ -1,6 +1,7 @@
 import { supabase, JVCMember } from "./supabase";
 import { scrapeLinkedInProfile } from "./lobstr";
 import { evaluateVCEligibility } from "./ai-evaluator";
+import { isDevMode } from "./project-mode";
 import {
   addCandidateToGroup,
   removeMemberFromGroup,
@@ -26,10 +27,15 @@ export async function runMonthlyVerification(options?: {
   targetMemberId?: string;
 }): Promise<VerificationRunSummary> {
   const startedAt = new Date().toISOString();
-  const dryRun = options?.dryRun || false;
+  const dev = await isDevMode();
+  const dryRun = dev ? true : (options?.dryRun || false);
+
+  if (dev && !options?.dryRun) {
+    console.warn(`🛡️ [DEV MODE SAFEGUARD] Live WhatsApp modifications are blocked. Forced DRY RUN / SIMULATION mode.`);
+  }
 
   console.log(`\n======================================================`);
-  console.log(`🚀 JVC VERIFICATION RUN ${dryRun ? "[DRY RUN / SIMULATION]" : "[LIVE]"}`);
+  console.log(`🚀 JVC VERIFICATION RUN ${dryRun ? "[DRY RUN / SIMULATION (DEV MODE)]" : "[LIVE]"}`);
   console.log(`======================================================\n`);
 
   const summary: VerificationRunSummary = {

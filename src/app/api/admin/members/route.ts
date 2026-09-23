@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { addCandidateToGroup, removeMemberFromGroup, sendRejectionNotice } from "@/lib/whatsapp/bot-service";
 import { scrapeLinkedInProfile } from "@/lib/lobstr";
 import { evaluateVCEligibility } from "@/lib/ai-evaluator";
+import { isDevMode } from "@/lib/project-mode";
 
 export async function GET(req: NextRequest) {
   try {
@@ -39,6 +40,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "force_approve") {
+      const dev = await isDevMode();
+      if (dev) {
+        return NextResponse.json(
+          {
+            error: "DEV MODE SAFEGUARD: System is in DEV mode. Adding candidates to WhatsApp is strictly blocked.",
+            blocked: true,
+            devMode: true,
+          },
+          { status: 403 }
+        );
+      }
       await addCandidateToGroup(
         member.phone_number,
         member.full_name,
@@ -67,6 +79,17 @@ export async function POST(req: NextRequest) {
         details: { manual_override_by: "admin" },
       });
     } else if (action === "force_remove") {
+      const dev = await isDevMode();
+      if (dev) {
+        return NextResponse.json(
+          {
+            error: "DEV MODE SAFEGUARD: System is in DEV mode. Removing members from WhatsApp is strictly blocked.",
+            blocked: true,
+            devMode: true,
+          },
+          { status: 403 }
+        );
+      }
       const reason = customReason || "No longer actively working in venture capital";
       await removeMemberFromGroup(member.phone_number, member.full_name, reason);
 

@@ -1,6 +1,6 @@
 export interface WhatsAppActionResult {
   success: boolean;
-  action: "added_to_group" | "invite_sent_dm" | "removed_from_group" | "message_sent" | "failed";
+  action: "added_to_group" | "invite_sent_dm" | "removed_from_group" | "message_sent" | "failed" | "blocked_dev_mode" | "error";
   recipient: string;
   details?: string;
   error?: string;

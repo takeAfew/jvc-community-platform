@@ -1,24 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBotState, startWhatsAppClient } from "@/lib/whatsapp/bot-service";
-import { supabase } from "@/lib/supabase";
+import { whatsapp } from "@/lib/whatsapp";
+import { getProjectMode } from "@/lib/project-mode";
 
 export async function GET() {
   try {
-    // Check Supabase cached status
-    const { data: setting } = await supabase
-      .from("jvc_community_settings")
-      .select("value")
-      .eq("key", "wa_bot_live_status")
-      .maybeSingle();
-
-    const inMemory = getBotState();
-    const result = setting?.value || inMemory;
+    const session = await whatsapp.getSessionStatus();
+    const modeState = await getProjectMode();
 
     return NextResponse.json({
-      status: inMemory.status !== "disconnected" ? inMemory.status : result.status || "disconnected",
-      phoneNumber: inMemory.phoneNumber || result.phoneNumber || null,
-      qrCodeDataUrl: inMemory.qrCodeDataUrl || result.qrCodeDataUrl || null,
-      lastConnectedAt: inMemory.lastConnectedAt || result.updated_at || null,
+      success: true,
+      status: session.connected ? "connected" : "disconnected",
+      rawStatus: session.status,
+      phoneNumber: session.phoneNumber || "+33745426699",
+      pushName: session.pushName || "JVC",
+      engineState: session.engineState,
+      projectMode: modeState.mode,
+      isDev: modeState.mode === "DEV",
+      safeguardActive: modeState.mode === "DEV",
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -27,9 +25,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    // Trigger WhatsApp connection
-    startWhatsAppClient().catch(console.error);
-    return NextResponse.json({ message: "WhatsApp client initializing..." });
+    // Check/refresh WAHA status
+    const session = await whatsapp.getSessionStatus();
+    return NextResponse.json({
+      message: session.connected ? "WAHA WhatsApp engine is online and connected." : "WhatsApp is disconnected.",
+      session,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
